@@ -1,0 +1,162 @@
+#!/usr/sbin/nft -f
+# nftables configuration managed by Ansible
+# DO NOT EDIT MANUALLY
+
+flush ruleset
+
+table ip filter {
+    # Sets for better configuration with multiple ports or IP
+{% if nftables_input_allowed_tcp_port | length > 0 %}
+    set input_tcp_ports {
+        type inet_service
+        elements = { {{ nftables_input_allowed_tcp_port | join(', ') }} }
+    }
+{% endif %}
+{% if nftables_input_allowed_udp_port | length > 0 %}
+    set input_udp_ports {
+        type inet_service
+        elements = { {{ nftables_input_allowed_udp_port | join(', ') }} }
+    }
+{% endif %}
+{% if nftables_allowed_output_tcp_ports | length > 0 %}
+    set output_tcp_ports {
+        type inet_service
+        elements = { {{ nftables_allowed_output_tcp_ports | join(', ') }} }
+    }
+{% endif %}
+{% if nftables_allowed_output_udp_ports | length > 0 %}
+    set output_udp_ports {
+        type inet_service
+        elements = { {{ nftables_allowed_output_udp_ports | join(', ') }} }
+    }
+{% endif %}
+{% if nftables_drop_specific_adress | length > 0 %}
+    set blacklist {
+        type ipv4_addr
+        flags interval
+        elements = { {{ nftables_drop_specific_adress | join(', ') }} }
+    }
+{% endif %}
+    # Logging chains
+    chain logdropin {
+        ct state new limit rate {{ nftables_log_rate_limit }} burst {{ nftables_log_burst }} packets log prefix "DROP-IN " level {{ nftables_log_level }}
+        drop
+    }
+
+    chain logdropout {
+        ct state new limit rate {{ nftables_log_rate_limit }} burst {{ nftables_log_burst }} packets log prefix "DROP-OUT " level {{ nftables_log_level }}
+        drop
+    }
+
+    # Input chain
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        # Allow loopback
+        iif lo accept
+
+{% if nftables_allow_loopback_smtp %}
+        # Allow SMTP on loopback
+        iif lo tcp dport 25 accept
+{% endif %}
+
+        # Allow established/related
+        ct state established,related accept
+
+        # Drop invalid packets
+        ct state invalid drop
+
+        # Allow ICMP (ping)
+        ip protocol icmp accept
+
+{% if nftables_drop_specific_adress | length > 0 %}
+        # Drop specific addresses
+        ip saddr @blacklist drop comment "Blacklisted IPs"
+{% endif %}
+
+{% if nftables_input_allowed_tcp_port | length > 0 %}
+        # Open TCP ports
+        tcp dport @input_tcp_ports accept
+{% endif %}
+
+{% if nftables_input_allowed_udp_port | length > 0 %}
+        # Open UDP ports
+        udp dport @input_udp_ports accept
+{% endif %}
+
+{% if nftables_allowed_restricted_input_tcp_ports | length > 0 %}
+        # Restricted TCP ports by source IP
+{% for item in nftables_allowed_restricted_input_tcp_ports %}
+        ip saddr {{ item.ip }} tcp dport {{ item.port }} accept
+{% endfor %}
+{% endif %}
+
+{% if nftables_allowed_restricted_input_udp_ports | length > 0 %}
+        # Restricted UDP ports by source IP
+{% for item in nftables_allowed_restricted_input_udp_ports %}
+        ip saddr {{ item.ip }} udp dport {{ item.port }} accept
+{% endfor %}
+{% endif %}
+
+{% if nftables_input_transfert_allowed_tcp_port | length > 0 %}
+        # TCP transfers with source/dest ports
+{% for item in nftables_input_transfert_allowed_tcp_port %}
+        ip saddr {{ item.ip }} tcp sport {{ item.sport }} tcp dport {{ item.dport }} accept
+{% endfor %}
+{% endif %}
+
+{% if nftables_custom_input_rules | length > 0 %}
+        # Custom input rules
+{% for rule in nftables_custom_input_rules %}
+        {{ rule }}
+{% endfor %}
+
+{% endif %}
+        # Log and drop remaining input
+        jump logdropin
+    }
+
+    # Forward chain
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+        
+{% if nftables_custom_forward_rules | length > 0 %}
+
+        # Custom forward rules
+{% for rule in nftables_custom_forward_rules %}
+        {{ rule }}
+{% endfor %}
+{% endif %}
+    }
+
+    # Output chain
+    chain output {
+        type filter hook output priority filter; policy drop;
+
+        # Allow loopback
+        oif lo accept
+
+        # Allow established/related
+        ct state established,related accept
+
+{% if nftables_allowed_output_tcp_ports | length > 0 %}
+        # Open output TCP ports
+        tcp dport @output_tcp_ports accept
+{% endif %}
+
+{% if nftables_allowed_output_udp_ports | length > 0 %}
+        # Open output UDP ports
+        udp dport @output_udp_ports accept
+{% endif %}
+
+{% if nftables_custom_output_rules | length > 0 %}
+        # Custom output rules
+{% for rule in nftables_custom_output_rules %}
+        {{ rule }}
+{% endfor %}
+
+{% endif %}
+
+        jump logdropout
+    }
+}
