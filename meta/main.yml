@@ -1,0 +1,18 @@
+---
+dependencies: []
+
+galaxy_info:
+  role_name: ""
+  author: "Xavier Binois"
+  namespace: "supertarto"
+  description: ""
+  license: "GNU General Public License v3.0"
+  min_ansible_version: "2.19"
+
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+
+  galaxy_tags:
