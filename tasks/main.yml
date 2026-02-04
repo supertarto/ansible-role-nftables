@@ -13,9 +13,3 @@
     group: root
     validate: 'nft -c -f %s'
   notify: Reload nftables
-
-- name: Enable and start nftables service
-  ansible.builtin.systemd:
-    name: nftables
-    enabled: true
-    state: started
